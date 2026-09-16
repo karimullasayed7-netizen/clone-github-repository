@@ -16,8 +16,8 @@ fi
 
 export CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID
 
-echo "Applying D1 schema..."
-npx wrangler d1 execute forge --remote --file schema.sql --yes
+echo "Migrating D1 schema..."
+npx wrangler d1 execute forge --remote --file migrate.sql --yes
 
 echo "Deploying forge-relay..."
 npx wrangler deploy

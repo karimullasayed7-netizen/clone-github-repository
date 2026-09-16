@@ -63,7 +63,7 @@ async function createPair(request: Request, env: Env) {
     const result = await env.DB.prepare('INSERT OR IGNORE INTO pairing_codes (code, phone_secret_hash, created_at, expires_at) VALUES (?, ?, ?, ?)')
       .bind(code, phoneSecretHash, now, expiresAt)
       .run()
-    if (result.meta.changes === 1) {
+    if ((result.meta?.changes ?? 0) === 1) {
       return json({ code, phoneSecret, expiresAt: new Date(expiresAt).toISOString() }, 201)
     }
     code = randomCode()
