@@ -127,7 +127,7 @@ def install_daemon():
     if AGENT_HOME.exists() and not (AGENT_HOME / ".git").is_dir():
         shutil.rmtree(AGENT_HOME)
     if not AGENT_HOME.exists():
-        run(["git", "clone", "--filter=blob:none", "DAEMON_REPOSITORY_PLACEHOLDER", str(AGENT_HOME)])
+        run(["git", "clone", "--filter=blob:none", DAEMON_REPOSITORY, str(AGENT_HOME)])
     run(["git", "-C", str(AGENT_HOME), "fetch", "--depth", "1", "origin", DAEMON_COMMIT])
     run(["git", "-C", str(AGENT_HOME), "checkout", "--detach", DAEMON_COMMIT])
 
@@ -230,7 +230,5 @@ def main():
 
 if __name__ == "__main__":
     main()
-`.replace('DAEMON_REPOSITORY_PLACEHOLDER', '${DAEMON_REPOSITORY}')
+`
 }
-
-const DAEMON_REPOSITORY = 'https://github.com/jxw1102/agent-remote.git'
