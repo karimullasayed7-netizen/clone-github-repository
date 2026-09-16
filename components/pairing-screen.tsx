@@ -87,6 +87,7 @@ export function PairingScreen() {
             await createPair()
             return
           }
+          if (response.status >= 500) return
           setStatus('error')
           setError(data.error || 'Pairing status is unavailable')
           return

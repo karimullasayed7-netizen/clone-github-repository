@@ -2,17 +2,54 @@ import { json } from '@/lib/http'
 
 const PHONE_SECRET_HEADER = 'x-forge-phone-secret'
 
+function originHost(value: string) {
+  try {
+    return new URL(value).hostname
+  } catch {
+    return ''
+  }
+}
+
+function allowedOrigins(request: Request) {
+  const requestUrl = new URL(request.url)
+  const forwardedHost = request.headers.get('x-forwarded-host')?.split(',')[0]?.trim()
+  const forwardedProto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim() || 'https'
+  const origins = new Set<string>([requestUrl.origin])
+  if (forwardedHost) origins.add(`${forwardedProto}://${forwardedHost}`)
+  for (const extra of (process.env.ALLOWED_ORIGINS ?? '').split(',')) {
+    const trimmed = extra.trim().replace(/\/+$/, '')
+    if (trimmed) origins.add(trimmed)
+  }
+  for (const extra of [process.env.APP_URL, process.env.NEXT_PUBLIC_APP_URL]) {
+    const trimmed = extra?.trim().replace(/\/+$/, '')
+    if (trimmed) origins.add(trimmed)
+  }
+  return origins
+}
+
+function hostAllowed(hostname: string, root: string) {
+  return hostname === root || hostname.endsWith(`.${root}`)
+}
+
+function isTrustedPreviewHost(hostname: string) {
+  return (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname.endsWith('.localhost') ||
+    hostAllowed(hostname, 'v0.app') ||
+    hostAllowed(hostname, 'v0.build') ||
+    hostAllowed(hostname, 'vercel.run') ||
+    hostAllowed(hostname, 'vercel.app')
+  )
+}
+
 export function requireSameOrigin(request: Request) {
   const origin = request.headers.get('origin')
   if (!origin) return json({ error: 'Origin header required' }, 403)
-  const forwardedHost = request.headers.get('x-forwarded-host')?.split(',')[0]?.trim()
-  const forwardedProto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim()
-  const requestUrl = new URL(request.url)
-  const expected = forwardedHost
-    ? `${forwardedProto || 'https'}://${forwardedHost}`
-    : requestUrl.origin
-  if (origin !== expected) return json({ error: 'Cross-origin request blocked' }, 403)
-  return null
+  if (allowedOrigins(request).has(origin)) return null
+  const host = originHost(origin)
+  if (host && isTrustedPreviewHost(host)) return null
+  return json({ error: 'Cross-origin request blocked' }, 403)
 }
 
 export function phoneSecret(request: Request) {
