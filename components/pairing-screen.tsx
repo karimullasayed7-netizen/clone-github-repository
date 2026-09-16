@@ -17,6 +17,7 @@ type PairStatus = 'loading' | 'waiting' | 'claimed' | 'online' | 'expired' | 'er
 type PairSession = {
   code: string
   phoneSecret: string
+  expiresAt?: string
   deviceId?: string
   hostname?: string
   daemonOnline?: boolean
@@ -58,10 +59,11 @@ export function PairingScreen() {
     setAppOrigin(APP_ORIGIN_OVERRIDE || window.location.origin)
     setPlatform(/Windows/i.test(navigator.userAgent) ? 'windows' : 'unix')
     const existing = readSession()
-    if (existing?.code && existing.phoneSecret) {
+    if (existing?.code && existing.phoneSecret && !isSessionExpired(existing)) {
       setSession(existing)
       return
     }
+    localStorage.removeItem(SESSION_KEY)
     void createPair()
   }, [])
 
@@ -135,7 +137,11 @@ export function PairingScreen() {
       const response = await fetch('/api/pair', { method: 'POST', cache: 'no-store' })
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || 'Could not create a pairing code')
-      const next = { code: data.code as string, phoneSecret: data.phoneSecret as string }
+      const next = {
+        code: data.code as string,
+        phoneSecret: data.phoneSecret as string,
+        expiresAt: data.expiresAt as string | undefined,
+      }
       writeSession(next)
       setSession(next)
       setStatus('waiting')
@@ -293,6 +299,12 @@ function Step({ n, children, done, active, highlight }: { n: number; children: R
       <span className={highlight && active && !done ? 'text-sm text-foreground' : 'text-sm text-muted-foreground'}>{children}</span>
     </li>
   )
+}
+
+function isSessionExpired(session: PairSession) {
+  if (!session.expiresAt) return false
+  const expiresAt = Date.parse(session.expiresAt)
+  return Number.isFinite(expiresAt) && expiresAt <= Date.now()
 }
 
 function readSession(): PairSession | null {
