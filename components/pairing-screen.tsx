@@ -81,7 +81,7 @@ export function PairingScreen() {
         const data = await response.json()
         if (cancelled) return
         if (!response.ok) {
-          if (response.status === 401 || response.status === 404) {
+          if ([401, 404, 409, 410].includes(response.status)) {
             localStorage.removeItem(SESSION_KEY)
             setSession(null)
             await createPair()
@@ -93,8 +93,9 @@ export function PairingScreen() {
           return
         }
         if (data.status === 'expired') {
-          setStatus('expired')
           localStorage.removeItem(SESSION_KEY)
+          setSession(null)
+          await createPair()
           return
         }
         const device = data.device as WorkerDevice | undefined
@@ -131,7 +132,7 @@ export function PairingScreen() {
     setStatus('loading')
     setError('')
     try {
-      const response = await fetch('/api/pair', { method: 'POST' })
+      const response = await fetch('/api/pair', { method: 'POST', cache: 'no-store' })
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || 'Could not create a pairing code')
       const next = { code: data.code as string, phoneSecret: data.phoneSecret as string }
@@ -193,7 +194,14 @@ export function PairingScreen() {
       <section className="flex flex-col gap-4 rounded-xl bg-card p-5 ring-1 ring-foreground/10">
         <div className="flex items-center justify-between gap-3">
           <p className="text-xs tracking-wide text-muted-foreground uppercase">Pairing code</p>
-          <StatusBadge status={status} />
+          <div className="flex items-center gap-2">
+            <StatusBadge status={status} />
+            {status !== 'loading' ? (
+              <Button size="sm" variant="ghost" onClick={() => void resetPairing()}>
+                New code
+              </Button>
+            ) : null}
+          </div>
         </div>
         <p className="font-mono text-3xl tracking-[0.14em] sm:text-4xl">{session?.code || '————-————'}</p>
         <p className="text-xs text-muted-foreground">Expires in 10 minutes if unused. Each code works once.</p>
@@ -244,7 +252,6 @@ export function PairingScreen() {
       </ol>
 
       {status === 'error' ? <p className="text-sm text-destructive">{error}</p> : null}
-      {status === 'expired' ? <Button onClick={() => void createPair()}>Get a new code</Button> : null}
 
       {connected ? (
         <div className="flex flex-col gap-3">

@@ -114,10 +114,13 @@ async function pairStatus(request: Request, env: Env, url: URL) {
   if (!pair || !phoneSecret || !safeEqual(await hashSecret(phoneSecret), pair.phone_secret_hash)) {
     throw new HttpError(404, 'Pairing session not found')
   }
-  if (pair.expires_at <= Date.now() && !pair.device_id) return json({ status: 'expired' })
-  if (!pair.device_id) return json({ status: 'waiting', expiresAt: new Date(pair.expires_at).toISOString() })
+  if (!pair.device_id) {
+    if (pair.expires_at <= Date.now()) return json({ status: 'expired' })
+    return json({ status: 'waiting', expiresAt: new Date(pair.expires_at).toISOString() })
+  }
   const device = await getAuthorizedDevice(env, pair.device_id, phoneSecret)
   const relay = await relayStatus(env, device.id)
+  if (!relay.online && pair.expires_at <= Date.now()) return json({ status: 'expired' })
   return json({ status: relay.online ? 'online' : 'claimed', device: publicDevice(device, relay) })
 }
 
