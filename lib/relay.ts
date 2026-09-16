@@ -38,14 +38,20 @@ function isTrustedPreviewHost(hostname: string) {
     hostname.endsWith('.localhost') ||
     hostAllowed(hostname, 'v0.app') ||
     hostAllowed(hostname, 'v0.build') ||
+    hostAllowed(hostname, 'v0.dev') ||
     hostAllowed(hostname, 'vercel.run') ||
-    hostAllowed(hostname, 'vercel.app')
+    hostAllowed(hostname, 'vercel.app') ||
+    hostAllowed(hostname, 'vusercontent.net')
   )
 }
 
 export function requireSameOrigin(request: Request) {
   const origin = request.headers.get('origin')
-  if (!origin) return json({ error: 'Origin header required' }, 403)
+  if (!origin) {
+    const site = request.headers.get('sec-fetch-site')
+    if (!site || site === 'same-origin' || site === 'none') return null
+    return json({ error: 'Origin header required' }, 403)
+  }
   if (allowedOrigins(request).has(origin)) return null
   const host = originHost(origin)
   if (host && isTrustedPreviewHost(host)) return null

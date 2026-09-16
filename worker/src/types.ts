@@ -33,6 +33,7 @@ export interface RpcRequest {
 
 export type LaptopMessage =
   | { type: 'heartbeat'; daemonOnline: boolean }
+  | { type: 'rpc_accepted'; id: string }
   | { type: 'rpc_start'; id: string; status: number; headers?: Record<string, string> }
   | { type: 'rpc_chunk'; id: string; bodyBase64: string }
   | { type: 'rpc_end'; id: string }

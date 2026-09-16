@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import base64
+import http.client
 import json
 import os
 import socket
@@ -11,9 +12,7 @@ import ssl
 import sys
 import threading
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
 from pathlib import Path
 
 try:
@@ -25,7 +24,22 @@ CONFIG_PATH = Path(os.environ.get("FORGE_CONFIG", str(Path.home() / ".forge" / "
 MAX_REQUEST_BYTES = 1024 * 1024
 MAX_RESPONSE_BYTES = 25 * 1024 * 1024
 CHUNK_BYTES = 16 * 1024
-HOP_HEADERS = {"connection", "content-length", "content-encoding", "host", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "transfer-encoding", "upgrade", "set-cookie"}
+CONNECT_TIMEOUT_S = 3
+READ_TIMEOUT_S = 300
+HOP_HEADERS = {
+    "connection",
+    "content-length",
+    "content-encoding",
+    "host",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailers",
+    "transfer-encoding",
+    "upgrade",
+    "set-cookie",
+}
 
 
 def load_config():
@@ -47,16 +61,31 @@ def daemon_token():
         return ""
 
 
+def daemon_target(config):
+    parsed = urllib.parse.urlsplit(str(config.get("daemonUrl", "http://127.0.0.1:8473")))
+    return parsed.hostname or "127.0.0.1", parsed.port or 8473
+
+
 def daemon_online(config):
+    host, port = daemon_target(config)
+    conn = http.client.HTTPConnection(host, port, timeout=CONNECT_TIMEOUT_S)
     try:
-        request = urllib.request.Request(str(config.get("daemonUrl", "http://127.0.0.1:8473")).rstrip("/") + "/api/ping")
-        token = daemon_token()
-        if token:
-            request.add_header("X-Auth-Token", token)
-        with urllib.request.urlopen(request, timeout=3) as response:
-            return response.status < 500
+        conn.request("GET", "/api/ping", headers=daemon_headers())
+        response = conn.getresponse()
+        response.read()
+        return response.status < 500
     except Exception:
         return False
+    finally:
+        conn.close()
+
+
+def daemon_headers():
+    headers = {"User-Agent": "forge-bridge/3.1", "Connection": "close"}
+    token = daemon_token()
+    if token:
+        headers["X-Auth-Token"] = token
+    return headers
 
 
 def validate_path(path):
@@ -95,6 +124,8 @@ class Bridge:
 
     def proxy_request(self, rpc):
         request_id = str(rpc["id"])
+        self.send({"type": "rpc_accepted", "id": request_id})
+        conn = None
         try:
             path = validate_path(str(rpc.get("path") or "/"))
             method = str(rpc.get("method") or "GET").upper()
@@ -104,34 +135,46 @@ class Bridge:
             body = base64.b64decode(body_value, validate=True) if body_value else None
             if body and len(body) > MAX_REQUEST_BYTES:
                 raise ValueError("Request body is too large")
-            daemon = str(self.config.get("daemonUrl", "http://127.0.0.1:8473")).rstrip("/")
-            request = urllib.request.Request(daemon + path, data=body, method=method)
-            request.add_header("User-Agent", "forge-bridge/3.0")
+            host, port = daemon_target(self.config)
+            headers = daemon_headers()
             for name, value in dict(rpc.get("headers") or {}).items():
                 if str(name).lower() not in HOP_HEADERS:
-                    request.add_header(str(name), str(value))
-            token = daemon_token()
-            if token:
-                request.add_header("X-Auth-Token", token)
+                    headers[str(name)] = str(value)
+            if body is not None:
+                headers["Content-Length"] = str(len(body))
+            conn = http.client.HTTPConnection(host, port, timeout=CONNECT_TIMEOUT_S)
             try:
-                response = urllib.request.urlopen(request, timeout=60)
-            except urllib.error.HTTPError as error:
-                response = error
-            with response:
-                headers = {name: value for name, value in response.headers.items() if name.lower() not in HOP_HEADERS}
-                self.send({"type": "rpc_start", "id": request_id, "status": response.status, "headers": headers})
-                total = 0
-                while True:
-                    chunk = response.read(CHUNK_BYTES)
-                    if not chunk:
-                        break
-                    total += len(chunk)
-                    if total > MAX_RESPONSE_BYTES:
-                        raise ValueError("Response body is too large")
-                    self.send({"type": "rpc_chunk", "id": request_id, "bodyBase64": base64.b64encode(chunk).decode("ascii")})
-                self.send({"type": "rpc_end", "id": request_id})
+                conn.connect()
+            except OSError as error:
+                raise RuntimeError("Local daemon is not running on %s:%s" % (host, port)) from error
+            if conn.sock is not None:
+                conn.sock.settimeout(READ_TIMEOUT_S)
+            conn.request(method, path, body=body, headers=headers)
+            response = conn.getresponse()
+            out_headers = {
+                name: value
+                for name, value in response.getheaders()
+                if name.lower() not in HOP_HEADERS
+            }
+            self.send({"type": "rpc_start", "id": request_id, "status": int(response.status), "headers": out_headers})
+            total = 0
+            while True:
+                chunk = response.read(CHUNK_BYTES)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_RESPONSE_BYTES:
+                    raise ValueError("Response body is too large")
+                self.send({"type": "rpc_chunk", "id": request_id, "bodyBase64": base64.b64encode(chunk).decode("ascii")})
+            self.send({"type": "rpc_end", "id": request_id})
         except Exception as error:
             self.send({"type": "rpc_error", "id": request_id, "message": str(error)[:500]})
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     def heartbeat_loop(self):
         while not self.stop.wait(15):
