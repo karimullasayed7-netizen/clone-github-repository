@@ -46,7 +46,8 @@ export default {
       return json({ error: 'Not found' }, 404)
     } catch (error) {
       if (error instanceof HttpError) return json({ error: error.message }, error.status)
-      return json({ error: 'Relay request failed' }, 500)
+      const message = error instanceof Error ? error.message : 'Relay request failed'
+      return json({ error: message, code: 'RELAY_EXCEPTION' }, 500)
     }
   },
 } satisfies ExportedHandler<Env>
