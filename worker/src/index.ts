@@ -28,20 +28,20 @@ export default {
         return json({ ok: true, service: 'forge-relay' })
       }
       if (url.pathname.match(/^\/v1\/devices\/[^/]+\/connect$/)) {
-        return connectLaptop(request, env, url)
+        return await connectLaptop(request, env, url)
       }
       if (!requireProxy(request, env)) return json({ error: 'Invalid proxy credential' }, 401)
 
-      if (url.pathname === '/v1/pairs' && request.method === 'POST') return createPair(request, env)
-      if (url.pathname === '/v1/pairs/claim' && request.method === 'POST') return claimPair(request, env)
-      if (url.pathname === '/v1/pairs/status' && request.method === 'GET') return pairStatus(request, env, url)
+      if (url.pathname === '/v1/pairs' && request.method === 'POST') return await createPair(request, env)
+      if (url.pathname === '/v1/pairs/claim' && request.method === 'POST') return await claimPair(request, env)
+      if (url.pathname === '/v1/pairs/status' && request.method === 'GET') return await pairStatus(request, env, url)
 
       const deviceMatch = url.pathname.match(/^\/v1\/devices\/([^/]+)(?:\/(rpc))?$/)
       if (deviceMatch) {
         const deviceId = deviceMatch[1]
-        if (deviceMatch[2] === 'rpc' && request.method === 'POST') return proxyRpc(request, env, deviceId)
-        if (request.method === 'GET') return deviceStatus(request, env, deviceId)
-        if (request.method === 'DELETE') return removeDevice(request, env, deviceId)
+        if (deviceMatch[2] === 'rpc' && request.method === 'POST') return await proxyRpc(request, env, deviceId)
+        if (request.method === 'GET') return await deviceStatus(request, env, deviceId)
+        if (request.method === 'DELETE') return await removeDevice(request, env, deviceId)
       }
       return json({ error: 'Not found' }, 404)
     } catch (error) {
@@ -88,7 +88,7 @@ async function claimPair(request: Request, env: Env) {
   const claim = await env.DB.prepare('UPDATE pairing_codes SET claimed_at = ?, device_id = ? WHERE code = ? AND claimed_at IS NULL AND expires_at > ?')
     .bind(now, deviceId, code, now)
     .run()
-  if (claim.meta.changes !== 1) throw new HttpError(409, 'Pairing code was already claimed')
+  if ((claim.meta?.changes ?? 0) !== 1) throw new HttpError(409, 'Pairing code was already claimed')
   try {
     await env.DB.prepare('INSERT INTO devices (id, name, platform, phone_secret_hash, device_token_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)')
       .bind(deviceId, name, platform, pair.phone_secret_hash, deviceTokenHash, now)
@@ -205,7 +205,7 @@ function phoneSecretFrom(request: Request) {
 }
 
 function normalizeCode(value: string | null | undefined) {
-  const code = (value ?? '').trim().toUpperCase()
+  const code = (value ?? '').trim().replace(/\r/g, '').toUpperCase()
   if (!/^[A-Z2-9]{3}-[A-Z2-9]{3}-[A-Z2-9]{3}$/.test(code)) throw new HttpError(400, 'Invalid pairing code')
   return code
 }

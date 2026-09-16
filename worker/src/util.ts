@@ -80,8 +80,12 @@ export async function consumeRateLimit(env: Env, key: string, limit: number, win
 }
 
 export class HttpError extends Error {
-  constructor(public readonly status: number, message: string) {
+  readonly status: number
+
+  constructor(status: number, message: string) {
     super(message)
+    this.name = 'HttpError'
+    this.status = status
   }
 }
 

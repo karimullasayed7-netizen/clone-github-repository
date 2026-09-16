@@ -203,7 +203,7 @@ def shell_quote(value):
 def main():
     if len(sys.argv) != 2:
         fail("one pairing code is required")
-    code = sys.argv[1].strip().upper()
+    code = sys.argv[1].strip().replace("\\r", "").upper()
     FORGE_HOME.mkdir(parents=True, exist_ok=True)
     print("Claiming pairing code...")
     credentials = claim(code)
